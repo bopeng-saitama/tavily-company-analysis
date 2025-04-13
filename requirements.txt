@@ -1,2 +1,5 @@
 tavily-python
 openai
+streamlit
+httpx
+pandas
