@@ -93,7 +93,8 @@ except ImportError:
     st.error("Unable to import CompanyAnalyzer. Make sure the tavily package is installed correctly.")
 
 # Create directory for settings
-SETTINGS_DIR = Path.home() / ".company_analyzer"
+BASE_DIR = Path(__file__).resolve().parent
+SETTINGS_DIR = BASE_DIR / "config"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 MODELS_FILE = SETTINGS_DIR / "models_cache.json"
 SETTINGS_DIR.mkdir(exist_ok=True)
@@ -225,7 +226,6 @@ async def fetch_models(llm_provider, api_key):
         except Exception as e:
             return ["Qwen/Qwen2.5-72B-Instruct", "Qwen/Qwen1.5-110B-Chat"]
 
-# 分析工作线程类 - 使用与 app_test3.py 中相同的线程模型
 class AnalysisWorker(threading.Thread):
     def __init__(self, 
                  company_name,
@@ -241,9 +241,7 @@ class AnalysisWorker(threading.Thread):
                  exclude_domains,
                  prefer_official,
                  **kwargs):
-        """初始化分析工作线程"""
         super().__init__(**kwargs)
-        # 存储所有分析参数
         self.company_name = company_name
         self.language = language
         self.output_format = output_format
@@ -268,7 +266,6 @@ class AnalysisWorker(threading.Thread):
         self.report_path = None
         self.current_section = ""
         
-        # 初始化部分
         for section_id in selected_section_ids:
             title = section_titles.get(section_id, section_id)
             self.sections.append({
@@ -281,13 +278,9 @@ class AnalysisWorker(threading.Thread):
             })
     
     def write(self, text):
-        """日志记录方法 - 模拟 AnalysisLogger 的接口"""
-        # 添加技术日志 - 所有内容都进入技术日志
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.logs.append(f"[{timestamp}] {text}")
         
-        # 处理特殊消息以创建用户友好日志
-        # 只有特定类型的消息才会添加到用户日志中
         if "ANALYZING SECTION:" in text:
             section_name = text.split("ANALYZING SECTION:")[1].strip()
             self.current_section = section_name
@@ -327,14 +320,11 @@ class AnalysisWorker(threading.Thread):
                 self._add_user_friendly_log(f"💾 レポートを保存しました: {file_path}")
             except:
                 pass
-        # 注意：其他类型的消息不会添加到用户日志，只存在于技术日志中
     
     def _add_user_friendly_log(self, message):
-        """添加用户友好日志消息"""
         self.user_logs.append(message)
     
     def _update_section_status(self, section_name, status):
-        """更新部分状态"""
         for section in self.sections:
             if section["title"] == section_name:
                 section["status"] = status
@@ -342,52 +332,41 @@ class AnalysisWorker(threading.Thread):
                     section["start_time"] = datetime.datetime.now().isoformat()
                 elif status == "complete":
                     section["end_time"] = datetime.datetime.now().isoformat()
-                    # 计算完成时间
                     if section.get("start_time"):
                         start = datetime.datetime.fromisoformat(section["start_time"])
                         end = datetime.datetime.now()
                         section["completion_time"] = (end - start).total_seconds()
                 break
         
-        # 更新整体进度
         self._update_overall_progress()
     
     def _update_overall_progress(self):
-        """更新整体进度百分比"""
         total_phases = len(self.sections)
         completed_phases = sum(1 for p in self.sections if p["status"] == "complete")
         running_phases = [p for p in self.sections if p["status"] == "running"]
         
-        # 已完成阶段的基础进度
         progress = completed_phases / total_phases * 100
         
-        # 添加运行中阶段的部分进度
         if running_phases:
             for phase in running_phases:
-                # 使用更精确的进度贡献计算
                 phase_contribution = 0
                 if "start_time" in phase and phase["start_time"]:
-                    # 估算当前阶段完成的百分比
                     start = datetime.datetime.fromisoformat(phase["start_time"])
                     now = datetime.datetime.now()
                     elapsed = (now - start).total_seconds()
-                    # 假设每个阶段平均需要 10 秒
                     estimated_progress = min(elapsed / 10.0, 0.9) * 100  
                     phase_contribution = estimated_progress / 100 / total_phases
                 else:
-                    # 如果没有开始时间，假设完成了 5%
                     phase_contribution = 0.05 / total_phases
                 
                 progress += phase_contribution
-        
-        # 如果已经完成，确保进度为100%
+
         if self.completed:
             progress = 100
             
         self.overall_progress = progress
     
     def run(self):
-        """线程运行方法 - 执行实际分析过程"""
         try:
             # 记录开始日志
             self.write(f"Starting analysis for {self.company_name}")
@@ -398,13 +377,11 @@ class AnalysisWorker(threading.Thread):
             
             if self.should_stop.is_set():
                 return
-            
-            # 设置基本 URL
+
             base_url = None
             if self.llm_provider.lower() == "silicon flow":
                 base_url = "https://api.siliconflow.cn/v1"
             
-            # 初始化分析器
             try:
                 self.write("Initializing CompanyAnalyzer...")
                 analyzer = CompanyAnalyzer(
@@ -423,11 +400,9 @@ class AnalysisWorker(threading.Thread):
             if self.should_stop.is_set():
                 return
             
-            # 运行分析
             try:
                 self.write(f"\nStarting company analysis for {self.company_name}...")
                 
-                # 运行分析
                 analysis_data = analyzer.analyze_company(
                     self.company_name,
                     language=self.language,
@@ -441,7 +416,6 @@ class AnalysisWorker(threading.Thread):
                 if self.should_stop.is_set():
                     return
                 
-                # 生成报告
                 self.write(f"\nGenerating {self.output_format} report...")
                 
                 report = analyzer.generate_report(
@@ -455,26 +429,31 @@ class AnalysisWorker(threading.Thread):
                 if self.should_stop.is_set():
                     return
                 
-                # 保存报告到文件
+                # Save report to file
                 try:
-                    # 处理公司名称以用于文件名
+                    # Create reports directory if it doesn't exist
+                    reports_dir = os.path.join(os.getcwd(), "reports")
+                    os.makedirs(reports_dir, exist_ok=True)
+                    
+                    # Process company name for filename
                     safe_company_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in self.company_name)
                     file_name = f"{safe_company_name}_analysis.{self.output_format}"
                     
-                    self.write(f"Saving report to file: {file_name}...")
-                    with open(file_name, "w", encoding="utf-8") as f:
+                    # Create full path to file in reports directory
+                    file_path = os.path.join(reports_dir, file_name)
+                    
+                    self.write(f"Saving report to file: {file_path}...")
+                    with open(file_path, "w", encoding="utf-8") as f:
                         f.write(report)
                     
-                    file_path = os.path.abspath(file_name)
                     self.write(f"Report saved successfully to: {file_path}")
                     self.report_path = file_path
                 except Exception as e:
                     self.write(f"ERROR: File saving failed: {str(e)}")
                 
-                # 完成
                 self.write("\nAnalysis process complete!")
                 self.completed = True
-                self.overall_progress = 100  # 确保进度为100%
+                self.overall_progress = 100  
                 
             except Exception as e:
                 import traceback
@@ -487,10 +466,8 @@ class AnalysisWorker(threading.Thread):
             self.write(f"THREAD ERROR: {str(e)}")
             self.write(f"Error details: {traceback.format_exc()}")
         finally:
-            # 不在这里修改会话状态 - 而是在主循环中处理
             pass
 
-# 线程管理器类
 class ThreadManager:
     def __init__(self):
         self.worker = None
@@ -517,7 +494,6 @@ class ThreadManager:
                     section_titles,
                     exclude_domains,
                     prefer_official):
-        """启动新的工作线程"""
         if self.worker is not None:
             self.stop_worker()
         
@@ -540,13 +516,11 @@ class ThreadManager:
         return self.worker
     
     def stop_worker(self):
-        """停止工作线程"""
         if self.worker is not None:
             self.worker.should_stop.set()
-            self.worker.join(timeout=2)  # 等待最多2秒
+            self.worker.join(timeout=2)  
             self.worker = None
 
-# 使用 st.cache_resource 缓存线程管理器
 @st.cache_resource
 def get_thread_manager():
     return ThreadManager()
@@ -719,11 +693,9 @@ def show_main_page():
     or applications. Includes motivation points (希望動機) for job applications.
     """)
     
-    # 获取线程管理器
     thread_manager = get_thread_manager()
     worker = thread_manager.get_worker()
     
-    # 检查是否正在运行或已完成
     is_running = thread_manager.is_running()
     is_completed = thread_manager.is_completed()
     
@@ -875,10 +847,8 @@ def show_main_page():
                 st.rerun()
         
         with start_col:
-            # 使用线程管理器状态控制按钮
             start_disabled = is_running
             if st.button("Start Analysis", type="primary", disabled=start_disabled, use_container_width=True):
-                # 检验必要条件
                 if not tavily_key:
                     st.error("Please enter your Tavily API Key")
                 elif use_llm and not llm_key:
@@ -886,7 +856,6 @@ def show_main_page():
                 elif not selected_section_ids:
                     st.error("Please select at least one section to analyze")
                 else:
-                    # 启动分析工作线程
                     thread_manager.start_worker(
                         company_name=company_name,
                         language=language,
@@ -901,30 +870,24 @@ def show_main_page():
                         exclude_domains=["wikipedia.org", "wikimedia.org"] if exclude_wikipedia else None,
                         prefer_official=prefer_official
                     )
-                    # 立即重新运行
                     st.rerun()
         
-        # 显示停止按钮
         if is_running:
             if st.button("Stop Analysis", type="secondary", use_container_width=True):
                 thread_manager.stop_worker()
                 st.rerun()
         
-        # 显示重置按钮
         if is_running or is_completed:
             if st.button("Start New Analysis", use_container_width=True):
                 thread_manager.stop_worker()
                 st.rerun()
     
-    # 主内容区域 - 使用与 app_test3.py 相似的布局
     col1, col2 = st.columns([3, 2])
     
     with col1:
-        # 状态和日志区域
         st.markdown("<div class='section-header'>Analysis Status:</div>", unsafe_allow_html=True)
         status_container = st.empty()
         
-        # 显示当前状态
         with status_container:
             if is_running:
                 st.warning("Process running...", icon="⚙️")
@@ -933,24 +896,21 @@ def show_main_page():
             else:
                 st.info("Click 'Start Analysis' to begin")
         
-        # 日志区域
         st.markdown("<div class='section-header'>Analysis Logs:</div>", unsafe_allow_html=True)
         log_container = st.container()
         
-        # 显示日志 
         with log_container:
             if worker and worker.user_logs:
                 st.markdown("<div class='output-container'>", unsafe_allow_html=True)
                 log_html = ""
-                for log in worker.user_logs[-10:]:  # 显示最近10条用户友好日志
+                for log in worker.user_logs[-10:]: 
                     log_html += f'<div class="log-entry">{log}</div>'
                 st.markdown(log_html, unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
                 
-                # 完整技术日志视图（可展开）
                 with st.expander("View Full Technical Log"):
                     st.markdown("<div style='max-height: 400px; overflow-y: auto;'>", unsafe_allow_html=True)
-                    for log in worker.logs:  # 使用完整的技术日志
+                    for log in worker.logs:  
                         st.code(log, language=None)
                     st.markdown("</div>", unsafe_allow_html=True)
             else:
@@ -959,20 +919,16 @@ def show_main_page():
                 st.markdown("</div>", unsafe_allow_html=True)
     
     with col2:
-        # 进度区域
         st.markdown("<div class='section-header'>Analysis Progress:</div>", unsafe_allow_html=True)
         progress_container = st.container()
         
-        # 显示进度
         with progress_container:
             if worker and (is_running or is_completed):
-                # 显示总体进度
                 st.header("Overall Progress")
                 progress_value = worker.overall_progress / 100 if is_running else 1.0
                 st.progress(progress_value)
                 st.metric("Completion", f"{worker.overall_progress:.1f}%" if is_running else "100%")
-                
-                # 显示阶段进度
+
                 st.header("Section Progress")
                 for section in worker.sections:
                     status_class = f"phase-{section['status']}"
@@ -985,12 +941,10 @@ def show_main_page():
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                # 显示空进度
                 st.header("Overall Progress")
                 st.progress(0)
                 st.metric("Completion", "0%")
                 
-                # 显示空阶段进度
                 st.header("Section Progress")
                 if selected_section_ids:
                     for section_id in selected_section_ids:
@@ -1003,14 +957,11 @@ def show_main_page():
                 else:
                     st.info("Select sections to analyze in the sidebar")
     
-    # 报告区域 - 放在主内容区域下方
     report_container = st.container()
     
-    # 显示报告
     with report_container:
         st.header("Analysis Report")
         if worker and worker.completed and worker.report_content:
-            # 创建标签页
             view_tab, download_tab = st.tabs(["View Report", "Download"])
             
             with view_tab:
@@ -1023,11 +974,10 @@ def show_main_page():
                         st.json(json.loads(worker.report_content))
                     except:
                         st.text(worker.report_content)
-                else:  # text
+                else:  
                     st.text(worker.report_content)
             
             with download_tab:
-                # 提供下载按钮
                 st.download_button(
                     "Download Report",
                     worker.report_content,
@@ -1036,25 +986,20 @@ def show_main_page():
                     key="download_button"
                 )
                 
-                # 显示保存文件信息
                 if worker.report_path:
                     st.success(f"Report saved to: {worker.report_path}")
                 
         elif not is_running:
             st.info("The analysis report will appear here once processing is complete.")
 
-# 主函数
 def main():
-    # 基于会话状态显示相应页面
     if st.session_state.page == 'settings':
         show_settings_page()
     else:
         show_main_page()
     
-    # 检查是否需要强制刷新
     thread_manager = get_thread_manager()
     if thread_manager.is_running():
-        # 使用固定的刷新间隔 - 0.5秒提供良好的响应性
         time.sleep(0.5)
         st.rerun()
 
