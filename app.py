@@ -401,7 +401,7 @@ class AnalysisWorker(threading.Thread):
             
             # 设置基本 URL
             base_url = None
-            if self.llm_provider.lower() == "siliconflow":
+            if self.llm_provider.lower() == "silicon flow":
                 base_url = "https://api.siliconflow.cn/v1"
             
             # 初始化分析器
